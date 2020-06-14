@@ -1,0 +1,200 @@
+---
+title: "Data_fest"
+author: "Mei Ye Bao"
+date: '2020-06-13'
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Import
+```{r}
+library(PerformanceAnalytics)
+library(quantmod)
+library(fpp2)
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(xlsx)
+library(nlme)
+library(lme4)
+
+
+covid19_url <- 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/ecdc/full_data.csv'
+covid19_raw <- read.csv(covid19_url)
+#covid19_raw$location == "China"
+
+
+#China
+China <- covid19_raw  %>% filter(location == "China") %>% select(date, new_cases)
+
+#Canada
+Canada <- covid19_raw  %>% filter(location == "Canada")  %>% select(date, new_cases)
+
+#USA
+USA <- covid19_raw  %>% filter(location == "United States")  %>% select(date, new_cases)
+
+
+#JingDong daily 
+dowjones <- new.env() 
+JD <- getSymbols("JD", env = dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+JD_dailyData <- apply.daily(dowjones$JD$JD.Close,last)
+#glimpse(JD_dailyData)
+
+#Amazon
+AMZN <- getSymbols("AMZN", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+AMZN_dailyData <- apply.daily(dowjones$AMZN$AMZN.Close,last)
+
+#Shopify 
+SHOP <- getSymbols("SHOP", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+
+SHOP_dailyData <- apply.daily(dowjones$SHOP$SHOP.Close,last)
+
+#Alibaba
+BABA <- getSymbols("BABA", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+BABA_dailyData <- apply.daily(dowjones$BABA$BABA.Close,last)
+
+#PDD
+PDD <- getSymbols("PDD", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+PDD_dailyData <- apply.daily(dowjones$PDD$PDD.Close,last)
+
+#Ebay
+EBAY <- getSymbols("EBAY", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+EBAY_dailyData <- apply.daily(dowjones$EBAY$EBAY.Close,last)
+
+#WMT
+WMT <- getSymbols("WMT", env=dowjones, src="yahoo", from="2019-12-31", to ="2020-06-01", adjust = TRUE)
+WMT_dailyData <- apply.daily(dowjones$WMT$WMT.Close,last)
+
+```
+
+#Clean Data
+```{r}
+
+dailyData <- data.frame(JD_dailyData, AMZN_dailyData, SHOP_dailyData, BABA_dailyData, PDD_dailyData, EBAY_dailyData, WMT_dailyData)
+#dailyData
+
+
+# China
+glimpse(China)
+PrepStockChina <- data.frame(JD_dailyData, BABA_dailyData, PDD_dailyData) 
+Date3 <- rownames(PrepStockChina)
+PrepStockChina <- cbind(Date3,PrepStockChina)
+StockChina <- left_join(China, PrepStockChina, by = c("date" = "Date3"))
+
+# StockChina <- StockChina %>%
+#   mutate(Date = as.Date(Date))%>% complete(Date = seq.Date(min(Date), as.Date("2020-06-12"), by="day"))
+# StockChina <- cbind(China, StockChina)
+
+StockChina <- na.omit(StockChina)
+glimpse(StockChina)
+
+
+#Canada
+PrepStockCanada <- data.frame(SHOP_dailyData)
+Date <- rownames(PrepStockCanada)
+PrepStockCanada <- cbind(Date,PrepStockCanada) 
+StockCanada <- left_join(Canada, PrepStockCanada, by = c("date" = "Date"))
+
+StockCanada <- na.omit(StockCanada)
+
+#US
+PrepStockUS <- data.frame(AMZN_dailyData,EBAY_dailyData,WMT_dailyData)
+Date2 <- rownames(PrepStockUS)
+PrepStockUS <- cbind(Date2,PrepStockUS) 
+StockUS <- left_join(USA, PrepStockUS, by = c("date" = "Date2"))
+
+StockUS <- na.omit(StockUS)
+#StockUS
+```
+
+
+# Analysis
+
+## Visualizing the data
+Before considering models,  a histogram of our data is plotted to see the distribution of the data.
+```{r}
+hist((StockChina$new_cases))
+hist((StockCanada$new_cases))
+hist((StockUS$new_cases))
+
+
+shapiro.test(StockChina$new_cases)
+shapiro.test(StockCanada$new_cases)
+shapiro.test(StockUS$new_cases)
+# The data is normal if the p-value is above 0.05. So we now know our variable is normally distributed.
+# Thus, not normal
+
+
+```
+## Stocks and COVID-19 cases in China
+```{r}
+summary(StockChina)
+plot(JD_dailyData)
+#Stocks in China with COVID-19 cases in China
+
+model_China <- glm(new_cases ~ JD.Close + BABA.Close + PDD.Close, family = poisson, data = StockChina)
+
+
+# Checking Model Assumptions
+par(mfrow = c(2, 2))
+plot(model_China)
+qqnorm(residuals(model_China))
+
+# Checking three companies' stock in relationship to COVID-19 new cases in China 
+summary(model_China)
+### All three companies showed significant interation with COVID-19 
+
+library(pbkrtest)
+library(sjPlot)
+tab_model(model_China)
+```
+
+## Stocks and COVID-19 cases in Canada
+```{r}
+
+#Stocks in Canada with COVID-19 cases in Canada
+
+model_Canada <- glm(new_cases ~ SHOP_dailyData, data = StockCanada)
+model2_Canada <- glm(new_cases ~ SHOP_dailyData, family = poisson,data = StockCanada)
+
+
+## Compare family: Normal VS Poisson
+summary(model_Canada)
+summary(model2_Canada)
+
+### Comparing AIC, model 1 has a much smaller AIC, so model 1 is selected as the better model
+
+# Checking Model Assumptions
+par(mfrow = c(2, 2))
+plot(model_Canada)
+
+# Checking three companies' stock in relationship to COVID-19 new cases in China 
+summary(model_Canada)
+### All three companies showed significant interation with COVID-19 
+tab_model(model_Canada)
+```
+
+## Stocks and COVID-19 cases in US
+```{r}
+
+#Stocks in China with COVID-19 cases in US
+
+model_US <- glm(new_cases ~ AMZN_dailyData +EBAY_dailyData + WMT_dailyData, data = StockUS)
+
+# Checking Model Assumptions
+par(mfrow = c(2, 2))
+plot(model_US)
+
+# Checking three companies' stock in relationship to COVID-19 new cases in China 
+summary(model_US)
+### All three companies showed significant interation with COVID-19 
+tab_model(model_US)
+
+```
